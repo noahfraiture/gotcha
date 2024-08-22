@@ -5,6 +5,8 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	_ "image/jpeg"
+	_ "image/png"
 	"log"
 	"os"
 	"os/exec"
@@ -32,6 +34,7 @@ func clear() {
 	}
 }
 
+// TODO : add auto scale
 func show(img image.Image) {
 	err := kittyimg.Fprintln(os.Stdout, img)
 	if err != nil {
@@ -39,12 +42,20 @@ func show(img image.Image) {
 	}
 }
 
-func addLabel(img image.Image, x, y int, label string, face font.Face) image.Image {
+type Position int
+
+const (
+	_ Position = iota
+	TOP
+	BOTTOM
+)
+
+func addLabel(img image.Image, position Position, label string, face font.Face) image.Image {
 	rgba := image.NewRGBA(img.Bounds())
 	draw.Draw(rgba, img.Bounds(), img, image.Point{}, draw.Src)
 
 	col := color.RGBA{200, 100, 0, 255}
-	point := fixed.Point26_6{Y: fixed.I(y)}
+	point := fixed.Point26_6{}
 
 	d := &font.Drawer{
 		Dst:  rgba,
@@ -53,13 +64,20 @@ func addLabel(img image.Image, x, y int, label string, face font.Face) image.Ima
 		Dot:  point,
 	}
 
-	// Measure the text width
 	textWidth := d.MeasureString(label).Ceil()
+	textHeight := (face.Metrics().Ascent + face.Metrics().Descent).Ceil()
 
-	// Center the text
-	imageWidth := img.Bounds().Dx()
-	x = (imageWidth - textWidth) / 2
+	x := (img.Bounds().Dx() - textWidth) / 2
 	point.X = fixed.I(x)
+
+	var y int
+	switch position {
+	case TOP:
+		y = textHeight // Already have some marge
+	case BOTTOM:
+		y = img.Bounds().Dy() - 20
+	}
+	point.Y = fixed.I(y)
 
 	d.Dot = point
 	d.DrawString(label)
@@ -67,7 +85,7 @@ func addLabel(img image.Image, x, y int, label string, face font.Face) image.Ima
 	return rgba
 }
 
-func loadFontFromFile(path string) (font.Face, error) {
+func loadFontFromFile(path string, size float64) (font.Face, error) {
 	fontBytes, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -79,9 +97,9 @@ func loadFontFromFile(path string) (font.Face, error) {
 		return nil, err
 	}
 
-	// Create a font.Face
+	// Create a font.Face with a dynamically determined size
 	face, err := opentype.NewFace(f, &opentype.FaceOptions{
-		Size: 12, // Adjust as needed
+		Size: size,
 		DPI:  72,
 	})
 	if err != nil {
@@ -164,14 +182,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Load the selected font
-	fontFace, err = loadFontFromFile(fontPath)
+	origin := getImg(imagePath)
+	img := origin
+
+	// Calculate font size based on image dimensions
+	imageHeight := img.Bounds().Dy()
+	fontSize := float64(imageHeight) * 0.05 // Font size is 5% of image height
+
+	// Load the selected font with the calculated size
+	fontFace, err = loadFontFromFile(fontPath, fontSize)
 	if err != nil {
 		log.Fatal("Error loading font: ", err)
 	}
-
-	origin := getImg(imagePath)
-	img := origin
 
 	clear()
 	for {
@@ -194,8 +216,8 @@ func main() {
 			log.Fatal(err)
 		}
 
-		img = addLabel(img, img.Bounds().Dx()/2, 20, topLabel, fontFace)
-		img = addLabel(img, img.Bounds().Dx()/2, img.Bounds().Dy()-20, bottomLabel, fontFace)
+		img = addLabel(img, TOP, topLabel, fontFace)
+		img = addLabel(img, BOTTOM, bottomLabel, fontFace)
 
 		show(img)
 
