@@ -1,137 +1,35 @@
 package main
 
 import (
-	"fmt"
-	"image"
-	"image/color"
-	"image/draw"
 	_ "image/jpeg"
 	_ "image/png"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 
 	"golang.org/x/image/font"
-	"golang.org/x/image/font/opentype"
-	"golang.org/x/image/math/fixed"
 
 	"github.com/charmbracelet/huh"
-	"github.com/dolmen-go/kittyimg"
 )
 
-func clear() {
-	switch runtime.GOOS {
-	case "linux", "darwin":
-		cmd := exec.Command("clear")
-		cmd.Stdout = os.Stdout
-		cmd.Run()
-	case "windows":
-		cmd := exec.Command("cmd", "/c", "cls")
-		cmd.Stdout = os.Stdout
-		cmd.Run()
+func contains(s []string, e string) bool {
+	for _, a := range s {
+		if a == e {
+			return true
+		}
 	}
+	return false
 }
 
-// TODO : add auto scale
-func show(img image.Image) {
-	err := kittyimg.Fprintln(os.Stdout, img)
-	if err != nil {
-		log.Fatal("Error printing image ", err)
-	}
-}
+func getFileOptions(dir string, extensions []string) ([]huh.Option[string], error) {
 
-type Position int
-
-const (
-	_ Position = iota
-	TOP
-	BOTTOM
-)
-
-func addLabel(img image.Image, position Position, label string, face font.Face) image.Image {
-	rgba := image.NewRGBA(img.Bounds())
-	draw.Draw(rgba, img.Bounds(), img, image.Point{}, draw.Src)
-
-	col := color.RGBA{200, 100, 0, 255}
-	point := fixed.Point26_6{}
-
-	d := &font.Drawer{
-		Dst:  rgba,
-		Src:  image.NewUniform(col),
-		Face: face,
-		Dot:  point,
-	}
-
-	textWidth := d.MeasureString(label).Ceil()
-	textHeight := (face.Metrics().Ascent + face.Metrics().Descent).Ceil()
-
-	x := (img.Bounds().Dx() - textWidth) / 2
-	point.X = fixed.I(x)
-
-	var y int
-	switch position {
-	case TOP:
-		y = textHeight // Already have some marge
-	case BOTTOM:
-		y = img.Bounds().Dy() - 20
-	}
-	point.Y = fixed.I(y)
-
-	d.Dot = point
-	d.DrawString(label)
-
-	return rgba
-}
-
-func loadFontFromFile(path string, size float64) (font.Face, error) {
-	fontBytes, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	// Parse the font file
-	f, err := opentype.Parse(fontBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create a font.Face with a dynamically determined size
-	face, err := opentype.NewFace(f, &opentype.FaceOptions{
-		Size: size,
-		DPI:  72,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return face, nil
-}
-
-func getImg(name string) image.Image {
-	file, err := os.Open(name)
-	if err != nil {
-		log.Fatal("Error opening ", err)
-	}
-	defer file.Close()
-
-	img, _, err := image.Decode(file)
-	if err != nil {
-		log.Fatal("Error decoding ", err)
-	}
-	return img
-
-}
-
-func getFontOptions(dir string) ([]huh.Option[string], error) {
 	var options []huh.Option[string]
 
 	err := filepath.WalkDir(dir, func(path string, info os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() && (filepath.Ext(path) == ".ttf" || filepath.Ext(path) == ".otf") {
+		if !info.IsDir() && contains(extensions, filepath.Ext(path)) {
 			options = append(options, huh.NewOption(info.Name(), path))
 		}
 		return nil
@@ -153,9 +51,13 @@ func main() {
 	var fontFace font.Face
 
 	// Get font options from fonts directory
-	fontOptions, err := getFontOptions("fonts")
+	fontOptions, err := getFileOptions("fonts", []string{".ttf", ".otf"})
 	if err != nil {
 		log.Fatal("Error reading fonts directory: ", err)
+	}
+	imgOptions, err := getFileOptions("imgs", []string{".jpg", ".jpeg", ".png"})
+	if err != nil {
+		log.Fatal("Error reading imgs directory: ", err)
 	}
 
 	form := huh.NewForm(
@@ -164,16 +66,10 @@ func main() {
 				Title("Choose a font").
 				Options(fontOptions...).
 				Value(&fontPath),
-
-			huh.NewInput().
-				Title("Enter image file name").
-				Value(&imagePath).
-				Validate(func(str string) error {
-					if str == "" {
-						return fmt.Errorf("Image file name cannot be empty")
-					}
-					return nil
-				}),
+			huh.NewSelect[string]().
+				Title("Choose an image").
+				Options(imgOptions...).
+				Value(&imagePath),
 		),
 	)
 
