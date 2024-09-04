@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 	"log"
@@ -55,7 +56,7 @@ func main() {
 	if err != nil {
 		log.Fatal("Error reading fonts directory: ", err)
 	}
-	imgOptions, err := getFileOptions("imgs", []string{".jpg", ".jpeg", ".png"})
+	imgOptions, err := getFileOptions("imgs", []string{".jpg", ".jpeg", ".png", ".gif"})
 	if err != nil {
 		log.Fatal("Error reading imgs directory: ", err)
 	}

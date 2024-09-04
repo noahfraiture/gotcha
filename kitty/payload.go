@@ -1,4 +1,4 @@
-package kittyimg
+package kitty
 
 import (
 	"compress/zlib"
