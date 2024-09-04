@@ -1,123 +1,59 @@
 package main
 
 import (
+	"gotcha/image"
+	"gotcha/kitty"
+	"gotcha/term"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 	"log"
 	"os"
-	"path/filepath"
 
 	"golang.org/x/image/font"
-
-	"github.com/charmbracelet/huh"
 )
 
-func contains(s []string, e string) bool {
-	for _, a := range s {
-		if a == e {
-			return true
-		}
-	}
-	return false
-}
-
-func getFileOptions(dir string, extensions []string) ([]huh.Option[string], error) {
-
-	var options []huh.Option[string]
-
-	err := filepath.WalkDir(dir, func(path string, info os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() && contains(extensions, filepath.Ext(path)) {
-			options = append(options, huh.NewOption(info.Name(), path))
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return options, nil
-}
-
-func main() {
-	clear()
-
-	var imagePath string
-	var topLabel string
-	var bottomLabel string
-	var fontPath string
-	var fontFace font.Face
-
-	// Get font options from fonts directory
-	fontOptions, err := getFileOptions("fonts", []string{".ttf", ".otf"})
-	if err != nil {
-		log.Fatal("Error reading fonts directory: ", err)
-	}
-	imgOptions, err := getFileOptions("imgs", []string{".jpg", ".jpeg", ".png", ".gif"})
-	if err != nil {
-		log.Fatal("Error reading imgs directory: ", err)
-	}
-
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Choose a font").
-				Options(fontOptions...).
-				Value(&fontPath),
-			huh.NewSelect[string]().
-				Title("Choose an image").
-				Options(imgOptions...).
-				Value(&imagePath),
-		),
-	)
-
-	err = form.Run()
+func unwrap(err error) {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
 
-	origin := getImg(imagePath)
-	img := origin
+func main() {
+	writer := os.Stdout
+	unwrap(term.Clear())
 
-	// Calculate font size based on image dimensions
-	imageHeight := img.Bounds().Dy()
-	fontSize := float64(imageHeight) * 0.05 // Font size is 5% of image height
+	var topLabel string
+	var bottomLabel string
+	var fontFace font.Face
+
+	var fontPath string
+	var imagePath string
+	form := FormSelect(&fontPath, &imagePath)
+
+	unwrap(form.Run())
+
+	img, err := image.NewImage(imagePath)
+	unwrap(err)
+	var imgPrinter = kitty.NewPrinter(img)
 
 	// Load the selected font with the calculated size
-	fontFace, err = loadFontFromFile(fontPath, fontSize)
-	if err != nil {
-		log.Fatal("Error loading font: ", err)
-	}
+	fontFace, err = loadFontFromFile(fontPath, imgPrinter.FontSize())
+	unwrap(err)
 
-	clear()
+	unwrap(term.Clear())
 	for {
-		show(img)
+		imgPrinter.Fprint(writer)
 
-		form := huh.NewForm(
-			huh.NewGroup(
-				huh.NewText().
-					Title("Top Caption").
-					Value(&topLabel),
+		form := FormCaption(&topLabel, &bottomLabel)
 
-				huh.NewText().
-					Title("Bottom Caption").
-					Value(&bottomLabel),
-			),
-		)
+		unwrap(form.Run())
 
-		err := form.Run()
-		if err != nil {
-			log.Fatal(err)
-		}
+		imgPrinter.AddLabel(image.TOP, topLabel, fontFace)
+		imgPrinter.AddLabel(image.BOTTOM, bottomLabel, fontFace)
 
-		img = addLabel(img, TOP, topLabel, fontFace)
-		img = addLabel(img, BOTTOM, bottomLabel, fontFace)
+		imgPrinter.Fprint(writer)
 
-		show(img)
-
-		clear()
+		unwrap(term.Clear())
 	}
 }

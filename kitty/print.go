@@ -5,61 +5,64 @@ package kitty
 
 import (
 	"fmt"
-	"image"
+	"gotcha/image"
+	"gotcha/term"
 	"io"
-
-	"gotcha/printer"
 )
 
-type KittyPrinter struct{}
+type KittyPrinter struct {
+	image.ImageFile
+}
 
-func (_ KittyPrinter) Fprint(w io.Writer, img image.Image) error {
-	// Get terminal size
-	termWidth, termHeight, err := printer.GetTerminalSize()
+func NewPrinter(img image.ImageFile) KittyPrinter {
+	return KittyPrinter{img}
+}
+
+// Print the image to the provided writer.
+// We use local client implementation only since it's easier.
+// If I add image generation AI we could add remote implementation.
+func (k *KittyPrinter) Fprint(w io.Writer) error {
+	termWidth, termHeight, err := term.GetTerminalSize()
 	if err != nil {
 		return err
 	}
 
-	// Scale the image to fit the terminal
-	scaledImg, err := printer.ScaleImage(img, termWidth, termHeight)
+	k.ScaleImage(termWidth, termHeight)
+
+	// Header sent to the terminal emulator giving information about the image
+	// https://sw.kovidgoyal.net/kitty/graphics-protocol/#transferring-pixel-data
+	// We don't use compression
+	// Kitty give the possibility to directly handle png, it complexifie the code,
+	// If it's too slow, it could be implemented
+	// TODO unicode placeholders
+	bounds := k.Edited.Bounds()
+	_, err = fmt.Fprintf(w, "\033_Gf=32,s=%d,v=%d,t=d;", bounds.Dx(), bounds.Dy())
+
 	if err != nil {
 		return err
 	}
 
-	bounds := scaledImg.Bounds()
-
-	// f=32 => RGBA
-	_, err = fmt.Fprintf(w, "\033_Gq=1,a=T,f=32,s=%d,v=%d,t=d,", bounds.Dx(), bounds.Dy())
-	if err != nil {
-		return err
-	}
-
-	buf := make([]byte, 0, 16384) // Multiple of 4 (RGBA)
-
-	var p zlibPayload
-	p.Reset(w)
+	buf := make([]byte, 0, bounds.Dx()*bounds.Dy()) // Multiple of 4 (RGBA)
 
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			if len(buf) == cap(buf) {
-				if _, err = p.Write(buf); err != nil {
-					return err
-				}
-				buf = buf[:0]
-			}
-			r, g, b, a := scaledImg.At(x, y).RGBA()
+			r, g, b, a := k.Edited.At(x, y).RGBA()
 			buf = append(buf, byte(r>>8), byte(g>>8), byte(b>>8), byte(a>>8))
 		}
 	}
 
-	if _, err = p.Write(buf); err != nil {
+	if _, err = w.Write(buf); err != nil {
 		return err
 	}
-	return p.Close()
+	_, err = fmt.Fprintf(w, "\033")
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
-func (k KittyPrinter) Fprintln(w io.Writer, img image.Image) error {
-	err := k.Fprint(w, img)
+func (k *KittyPrinter) Fprintln(w io.Writer) error {
+	err := k.Fprint(w)
 	if err != nil {
 		return err
 	}
